@@ -11,7 +11,13 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Clusters::Table)
                     .if_not_exists()
-                    .col(pk_auto(Clusters::Id))
+                    .col(
+                        ColumnDef::new(Clusters::Id)
+                            .uuid()
+                            .extra("DEFAULT gen_random_uuid()")
+                            .primary_key()
+                            .not_null(),
+                    )
                     .col(string(Clusters::Name).not_null())
                     .to_owned(),
             )

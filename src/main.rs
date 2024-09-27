@@ -2,6 +2,7 @@ use std::error::Error;
 
 use database::Database;
 
+mod entities;
 mod database;
 mod namespace;
 

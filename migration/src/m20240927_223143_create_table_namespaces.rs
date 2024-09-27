@@ -11,12 +11,19 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Namespaces::Table)
                     .if_not_exists()
-                    .col(pk_auto(Namespaces::Id))
+                    .col(
+                        ColumnDef::new(Namespaces::Id)
+                            .uuid()
+                            .extra("DEFAULT gen_random_uuid()")
+                            .primary_key()
+                            .not_null(),
+                    )
                     .col(string(Namespaces::Name).not_null())
+                    .col(uuid(Namespaces::ClusterId).not_null())
                     .to_owned(),
             )
             .await?;
-
+        println!("Table created");
         manager
             .create_foreign_key(
                 ForeignKey::create()
