@@ -1,3 +1,3 @@
-mod clusters;
-mod namespaces;
-mod workload_types;
+pub mod clusters;
+pub mod namespaces;
+pub mod workload_types;

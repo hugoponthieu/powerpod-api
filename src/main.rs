@@ -1,9 +1,10 @@
 use std::error::Error;
 
+mod cluster;
+mod repositories;
 mod cache;
 mod database;
 mod entities;
-mod namespace;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
