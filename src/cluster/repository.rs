@@ -1,7 +1,8 @@
 use std::{error::Error, sync::Arc};
 
 use sea_orm::{
-    prelude::Uuid, ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, IntoActiveModel, QueryFilter,
+    prelude::Uuid, ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, IntoActiveModel, ModelTrait,
+    QueryFilter,
 };
 
 use crate::{
@@ -39,6 +40,7 @@ impl ClusterRepository for ClusterRepositorySea {
         cluster_id: Uuid,
     ) -> Result<Vec<namespaces::Model>, Box<dyn Error>> {
         // TODO: verify that cluster exists
+        self.get(cluster_id).await?;
         let namespaces = Namespace::find()
             .filter(namespaces::Column::ClusterId.eq(cluster_id))
             .all(&self.db.connection)
@@ -68,6 +70,7 @@ impl ClusterRepository for ClusterRepositorySea {
             .into_active_model()
             .insert(&self.db.connection)
             .await?;
+        
         Ok(cluster)
     }
 
