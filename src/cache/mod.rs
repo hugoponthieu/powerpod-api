@@ -1,33 +1,47 @@
+mod items;
+
 use std::error::Error;
 
-use redis::{Commands, Connection};
+use items::{Item, Items};
+use redis::{Commands, Connection, ConnectionLike};
+use sea_orm::sea_query::value;
+use serde_json::Value;
 
 pub struct Cache {
     pub connection: Connection,
+    pub ttl: u64,
 }
 
 impl Cache {
-    pub fn new(connection_url: &str) -> Result<Self, Box<dyn Error>> {
-        let client = redis::Client::open(connection_url)?;
+    pub fn new(cache_config: CacheConfig) -> Result<Self, Box<dyn Error>> {
+        let client = redis::Client::open(cache_config.connection_url)?;
         let connection = client.get_connection()?;
-        Ok(Cache { connection })
+        Ok(Cache {
+            connection,
+            ttl: cache_config.ttl,
+        })
     }
-    pub fn save(
-        &mut self,
-        key: &str,
-        value: &str,
-        seconds: Option<u64>,
-    ) -> Result<(), Box<dyn Error>> {
-        let ttl = seconds.unwrap_or(600);
+    pub fn save(&mut self, key: &str, value: Value) -> Result<(), Box<dyn Error>> {
+        let saved_value = serde_json::to_string(&value)?;
         let _ = self
             .connection
-            .set_ex::<&str, &str, usize>(key, value, ttl)?;
+            .set_ex::<&str, &str, usize>(key, saved_value.as_str(), self.ttl)?;
         Ok(())
     }
 
-    pub fn get(&mut self, key: &str) -> Result<Option<String>, Box<dyn Error>> {
+    pub fn m_save(&mut self, items: &Items) -> Result<(), Box<dyn Error>> {
+        todo!();
+        Ok(())
+    }
+    pub fn get(&mut self, key: &str) -> Result<Option<Value>, Box<dyn Error>> {
         let value: Option<String> = self.connection.get(key)?;
-        Ok(value)
+        match value {
+            None => Ok(None),
+            Some(v) => {
+                let parsed_value: Value = serde_json::from_str(v.as_str())?;
+                return Ok(Some(parsed_value));
+            }
+        }
     }
 
     pub fn invalidate(&mut self, key: &str) -> Result<i32, Box<dyn Error>> {

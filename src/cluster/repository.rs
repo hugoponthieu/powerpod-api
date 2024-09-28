@@ -1,8 +1,10 @@
-use std::{error::Error, sync::Arc};
+use std::{
+    error::Error,
+    sync::{Arc, RwLock},
+};
 
 use sea_orm::{
-    prelude::Uuid, ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, IntoActiveModel, ModelTrait,
-    QueryFilter,
+    prelude::Uuid, ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, IntoActiveModel, QueryFilter,
 };
 
 use crate::{
@@ -17,12 +19,17 @@ use crate::{
 
 pub struct ClusterRepositorySea {
     db: Arc<Database>,
-    cache: Arc<Cache>,
+    cache: Arc<RwLock<Cache>>,
+    cache_key: String,
 }
 
 impl ClusterRepositorySea {
-    pub fn new(db: Arc<Database>, cache: Arc<Cache>) -> Self {
-        ClusterRepositorySea { db, cache }
+    pub fn new(db: Arc<Database>, cache: Arc<RwLock<Cache>>) -> Self {
+        ClusterRepositorySea {
+            db,
+            cache,
+            cache_key: "cluster:".to_string(),
+        }
     }
 }
 // TODO: Implement caching
@@ -56,13 +63,19 @@ impl ClusterRepository for ClusterRepositorySea {
     async fn get(&self, id: Uuid) -> Result<clusters::Model, Box<dyn Error>> {
         let res = Cluster::find_by_id(id).one(&self.db.connection).await?;
 
-        match res {
-            Some(cluster) => Ok(cluster),
-            None => Err(Box::new(DbErr::RecordNotFound(format!(
-                "Cluster with id {} not found",
-                id,
-            )))),
-        }
+        let cluster = match res {
+            Some(cluster) => cluster,
+            None => {
+                return Err(Box::new(DbErr::RecordNotFound(format!(
+                    "Cluster with id {} not found",
+                    id,
+                ))))
+            }
+        };
+        let mut cache = self.cache.write().unwrap();
+        let value = serde_json::json!(cluster);
+        cache.save(&format!("{}{}", self.cache_key, id), value)?;
+        Ok(cluster)
     }
 
     async fn create(&self, cluster: clusters::Model) -> Result<clusters::Model, Box<dyn Error>> {
@@ -70,7 +83,7 @@ impl ClusterRepository for ClusterRepositorySea {
             .into_active_model()
             .insert(&self.db.connection)
             .await?;
-        
+
         Ok(cluster)
     }
 
