@@ -6,8 +6,8 @@ edition = "2021"
 [dependencies]
 actix = "0.13.5"
 actix-web = "4.9.0"
+redis = { version = "0.24.0", features = ["tokio-comp"] }
 sea-orm = { version = "1.0.1", features = ["sqlx-postgres", "runtime-tokio"] }
-
 tokio = { version = "1.40.0", features = ["full"] }
 utoipa = { version = "4", features = ["actix_extras"] }
 utoipa-scalar = { version = "0.1", features = ["actix-web"] }
