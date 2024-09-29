@@ -1,26 +1,36 @@
-pub mod items;
 pub mod cache_keys;
+pub mod items;
 use std::{collections::HashMap, error::Error};
 
-use items::Items;
-use redis::{Commands, Connection, RedisError};
+use redis::{Commands, Connection};
 use serde_json::Value;
 
-pub struct Cache {
+pub trait Cache {
+    fn save(&mut self, key: &str, value: String) -> Result<(), Box<dyn Error + Send + Sync>>;
+    fn m_save(
+        &mut self,
+        items: HashMap<String, String>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
+    fn get(&mut self, key: &str) -> Result<Value, Box<dyn Error + Send + Sync>>;
+    fn m_get(&mut self, keys: Vec<String>) -> Result<Vec<Value>, Box<dyn Error + Send + Sync>>;
+    fn invalidate(&mut self, key: &str) -> Result<i32, Box<dyn Error + Send + Sync>>;
+}
+
+pub struct CacheImpl {
     pub connection: Connection,
     pub ttl: u64,
 }
 
-impl Cache {
-    pub fn new(cache_config: CacheConfig) -> Result<Self, Box<dyn Error>> {
+impl CacheImpl {
+    pub fn new(cache_config: CacheConfig) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let client = redis::Client::open(cache_config.connection_url)?;
         let connection = client.get_connection()?;
-        Ok(Cache {
+        Ok(CacheImpl {
             connection,
             ttl: cache_config.ttl,
         })
     }
-    pub fn save(&mut self, key: &str, value: String) -> Result<(), Box<dyn Error>> {
+    pub fn save(&mut self, key: &str, value: String) -> Result<(), Box<dyn Error + Send + Sync>> {
         let saved_value = serde_json::to_string(&value)?;
         let _ = self
             .connection
@@ -28,7 +38,10 @@ impl Cache {
         Ok(())
     }
 
-    pub fn m_save(&mut self, items: HashMap<String, String>) -> Result<(), Box<dyn Error>> {
+    pub fn m_save(
+        &mut self,
+        items: HashMap<String, String>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         for item in items.iter() {
             let key = item.0.as_str();
             let value = item.1.as_str();
@@ -36,7 +49,7 @@ impl Cache {
         }
         Ok(())
     }
-    pub fn get(&mut self, key: &str) -> Result<Value, Box<dyn Error>> {
+    pub fn get(&mut self, key: &str) -> Result<Value, Box<dyn Error + Send + Sync>> {
         let value: Option<String> = self.connection.get(key)?;
         match value {
             None => return Err("Key not found".into()),
@@ -47,7 +60,7 @@ impl Cache {
         }
     }
 
-    pub fn m_get(&mut self, keys: Vec<String>) -> Result<Vec<Value>, Box<dyn Error>> {
+    pub fn m_get(&mut self, keys: Vec<String>) -> Result<Vec<Value>, Box<dyn Error + Send + Sync>> {
         let values: Vec<Option<String>> = self.connection.mget(keys)?;
         let mut result: Vec<Value> = vec![];
         for value in values.iter() {
@@ -65,7 +78,7 @@ impl Cache {
         Ok(result)
     }
 
-    pub fn invalidate(&mut self, key: &str) -> Result<i32, Box<dyn Error>> {
+    pub fn invalidate(&mut self, key: &str) -> Result<i32, Box<dyn Error + Send + Sync>> {
         let res = self.connection.del(key)?;
         match res {
             0 => return Err("Key not found".into()),
