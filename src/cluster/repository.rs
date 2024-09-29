@@ -1,11 +1,10 @@
+use sea_orm::IntoActiveModel;
 use std::{
     error::Error,
     sync::{Arc, RwLock},
 };
 
-use sea_orm::{
-    prelude::Uuid, ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, IntoActiveModel, QueryFilter,
-};
+use sea_orm::{prelude::Uuid, ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, QueryFilter};
 
 use crate::{
     cache::Cache,
@@ -73,17 +72,19 @@ impl ClusterRepository for ClusterRepositorySea {
             }
         };
         let mut cache = self.cache.write().unwrap();
-        let value = serde_json::json!(cluster);
+        let value = serde_json::to_string(&cluster)?;
         cache.save(&format!("{}{}", self.cache_key, id), value)?;
         Ok(cluster)
     }
 
     async fn create(&self, cluster: clusters::Model) -> Result<clusters::Model, Box<dyn Error>> {
-        let cluster = cluster
-            .into_active_model()
-            .insert(&self.db.connection)
+        let cluster: clusters::Model = Cluster::insert(cluster.into_active_model())
+            .exec_with_returning(&self.db.connection)
             .await?;
-
+        self.cache.write().unwrap().save(
+            &format!("{}{}", self.cache_key, cluster.id),
+            serde_json::to_string(&cluster)?,
+        )?;
         Ok(cluster)
     }
 

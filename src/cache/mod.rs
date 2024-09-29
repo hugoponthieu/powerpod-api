@@ -2,9 +2,8 @@ mod items;
 
 use std::error::Error;
 
-use items::{Item, Items};
-use redis::{Commands, Connection, ConnectionLike};
-use sea_orm::sea_query::value;
+use items::Items;
+use redis::{Commands, Connection};
 use serde_json::Value;
 
 pub struct Cache {
@@ -21,7 +20,7 @@ impl Cache {
             ttl: cache_config.ttl,
         })
     }
-    pub fn save(&mut self, key: &str, value: Value) -> Result<(), Box<dyn Error>> {
+    pub fn save(&mut self, key: &str, value: String) -> Result<(), Box<dyn Error>> {
         let saved_value = serde_json::to_string(&value)?;
         let _ = self
             .connection
@@ -30,7 +29,11 @@ impl Cache {
     }
 
     pub fn m_save(&mut self, items: &Items) -> Result<(), Box<dyn Error>> {
-        todo!();
+        for item in items.iter() {
+            let key = item.0.as_str();
+            let value = item.1.as_str();
+            self.save(key, value.to_owned())?;
+        }
         Ok(())
     }
     pub fn get(&mut self, key: &str) -> Result<Option<Value>, Box<dyn Error>> {
