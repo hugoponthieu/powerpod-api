@@ -8,7 +8,7 @@ use std::{
 use sea_orm::{prelude::Uuid, ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, QueryFilter};
 
 use crate::{
-    cache::{self, items::Items, Cache},
+    cache::{self, cache_keys::CacheKeys, items::Items, Cache},
     database::Database,
     entities::{
         clusters::{self, Entity as Cluster},
@@ -20,25 +20,41 @@ use crate::{
 pub struct ClusterRepositorySea {
     db: Arc<Database>,
     cache: Arc<RwLock<Cache>>,
-    cache_key: String,
 }
 
 impl ClusterRepositorySea {
     pub fn new(db: Arc<Database>, cache: Arc<RwLock<Cache>>) -> Self {
-        ClusterRepositorySea {
-            db,
-            cache,
-            cache_key: "cluster:".to_string(),
-        }
+        ClusterRepositorySea { db, cache }
     }
 }
 // TODO: Implement caching
 impl ClusterRepository for ClusterRepositorySea {
     async fn m_get(&self, cluster_ids: Vec<Uuid>) -> Result<Vec<clusters::Model>, Box<dyn Error>> {
-        // TODO: Create two list on for failure and one for success
+        let mut cache = self.cache.write().unwrap();
+        let cached_data: Vec<serde_json::Value> = cache.m_get(
+            cluster_ids
+                .iter()
+                .map(|id| CacheKeys::Cluster(id.to_string()).key())
+                .collect::<Vec<String>>(),
+        )?;
+        let mut clusters: Vec<clusters::Model> = Vec::new();
+        for data in cached_data.iter() {
+            let cluster: clusters::Model = serde_json::from_value(data.clone())?;
+            clusters.push(cluster);
+        }
+        if clusters.len() == cluster_ids.len() {
+            return Ok(clusters);
+        }
         let mut query = Cluster::find();
         query = query.filter(clusters::Column::Id.is_in(cluster_ids));
-        let clusters = query.all(&self.db.connection).await?;
+        clusters = query.all(&self.db.connection).await?;
+        let mut redis_items: HashMap<String, String> = HashMap::new();
+        for cluster in clusters.iter() {
+            let value = serde_json::to_string(&cluster)?;
+            let key = CacheKeys::Cluster(cluster.id.to_string()).key();
+            redis_items.insert(key, value);
+        }
+        cache.m_save(redis_items)?;
         Ok(clusters)
     }
 
@@ -46,12 +62,19 @@ impl ClusterRepository for ClusterRepositorySea {
         &self,
         cluster_id: Uuid,
     ) -> Result<Vec<namespaces::Model>, Box<dyn Error>> {
-        // TODO: verify that cluster exists
         self.get(cluster_id).await?;
         let namespaces = Namespace::find()
             .filter(namespaces::Column::ClusterId.eq(cluster_id))
             .all(&self.db.connection)
             .await?;
+        let mut cached_namespaces: HashMap<String, String> = HashMap::new();
+        for namespace in namespaces.iter() {
+            let cache_key = CacheKeys::Namespace(namespace.id.to_string()).key();
+            let value = serde_json::to_string(&namespace)?;
+            cached_namespaces.insert(cache_key, value);
+        }
+        let mut cache = self.cache.write().unwrap();
+        cache.m_save(cached_namespaces)?;
         Ok(namespaces)
     }
 
@@ -61,7 +84,7 @@ impl ClusterRepository for ClusterRepositorySea {
         let mut redis_items: HashMap<String, String> = HashMap::new();
         for cluster in clusters.iter() {
             let value = serde_json::to_string(&cluster)?;
-            let key = format!("{}{}", self.cache_key, cluster.id);
+            let key = CacheKeys::Cluster(cluster.id.to_string()).key();
             redis_items.insert(key, value);
         }
         // Caching should not be a blocking operation. Therefore, we ignore the result
@@ -74,8 +97,16 @@ impl ClusterRepository for ClusterRepositorySea {
     }
 
     async fn get(&self, id: Uuid) -> Result<clusters::Model, Box<dyn Error>> {
+        let mut cache = self.cache.write().unwrap();
+        let cache_key = CacheKeys::Cluster(id.to_string()).key();
+        match cache.get(cache_key.as_str()) {
+            Ok(value) => {
+                let cluster: clusters::Model = serde_json::from_value(value)?;
+                return Ok(cluster);
+            }
+            _ => {}
+        };
         let res = Cluster::find_by_id(id).one(&self.db.connection).await?;
-
         let cluster = match res {
             Some(cluster) => cluster,
             None => {
@@ -85,9 +116,8 @@ impl ClusterRepository for ClusterRepositorySea {
                 ))))
             }
         };
-        let mut cache = self.cache.write().unwrap();
         let value = serde_json::to_string(&cluster)?;
-        cache.save(&format!("{}{}", self.cache_key, id), value)?;
+        cache.save(&cache_key, value)?;
         Ok(cluster)
     }
 
@@ -96,7 +126,7 @@ impl ClusterRepository for ClusterRepositorySea {
             .exec_with_returning(&self.db.connection)
             .await?;
         self.cache.write().unwrap().save(
-            &format!("{}{}", self.cache_key, cluster.id),
+            CacheKeys::Cluster(cluster.id.to_string()).key().as_str(),
             serde_json::to_string(&cluster)?,
         )?;
         Ok(cluster)
@@ -107,7 +137,7 @@ impl ClusterRepository for ClusterRepositorySea {
             .into_active_model()
             .update(&self.db.connection)
             .await?;
-        let cache_key = format!("{}{}", self.cache_key, cluster.id);
+        let cache_key = CacheKeys::Cluster(cluster.id.to_string()).key();
         let mut cache = self.cache.write().unwrap();
         cache.save(cache_key.as_str(), serde_json::to_string(&cluster)?)?;
         Ok(cluster)
@@ -115,7 +145,7 @@ impl ClusterRepository for ClusterRepositorySea {
 
     async fn delete(&self, id: Uuid) -> Result<(), Box<dyn Error>> {
         Cluster::delete_by_id(id).exec(&self.db.connection).await?;
-        let cache_key = format!("{}{}", self.cache_key, id);
+        let cache_key = CacheKeys::Cluster(id.to_string()).key();
         let mut cache = self.cache.write().unwrap();
         cache.invalidate(cache_key.as_str())?;
         Ok(())

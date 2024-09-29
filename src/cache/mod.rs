@@ -1,9 +1,9 @@
 pub mod items;
-
+pub mod cache_keys;
 use std::{collections::HashMap, error::Error};
 
 use items::Items;
-use redis::{Commands, Connection};
+use redis::{Commands, Connection, RedisError};
 use serde_json::Value;
 
 pub struct Cache {
@@ -28,7 +28,7 @@ impl Cache {
         Ok(())
     }
 
-    pub fn m_save(&mut self, items: HashMap<String,String>) -> Result<(), Box<dyn Error>> {
+    pub fn m_save(&mut self, items: HashMap<String, String>) -> Result<(), Box<dyn Error>> {
         for item in items.iter() {
             let key = item.0.as_str();
             let value = item.1.as_str();
@@ -36,13 +36,13 @@ impl Cache {
         }
         Ok(())
     }
-    pub fn get(&mut self, key: &str) -> Result<Option<Value>, Box<dyn Error>> {
+    pub fn get(&mut self, key: &str) -> Result<Value, Box<dyn Error>> {
         let value: Option<String> = self.connection.get(key)?;
         match value {
-            None => Ok(None),
+            None => return Err("Key not found".into()),
             Some(v) => {
                 let parsed_value: Value = serde_json::from_str(v.as_str())?;
-                return Ok(Some(parsed_value));
+                return Ok(parsed_value);
             }
         }
     }
