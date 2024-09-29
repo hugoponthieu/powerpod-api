@@ -1,5 +1,6 @@
 use sea_orm::IntoActiveModel;
 use std::{
+    collections::HashMap,
     error::Error,
     sync::{Arc, RwLock},
 };
@@ -7,7 +8,7 @@ use std::{
 use sea_orm::{prelude::Uuid, ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, QueryFilter};
 
 use crate::{
-    cache::Cache,
+    cache::{self, items::Items, Cache},
     database::Database,
     entities::{
         clusters::{self, Entity as Cluster},
@@ -55,7 +56,20 @@ impl ClusterRepository for ClusterRepositorySea {
     }
 
     async fn get_all(&self) -> Result<Vec<clusters::Model>, Box<dyn Error>> {
+        let mut cache = self.cache.write().unwrap();
         let clusters = Cluster::find().all(&self.db.connection).await?;
+        let mut redis_items: HashMap<String, String> = HashMap::new();
+        for cluster in clusters.iter() {
+            let value = serde_json::to_string(&cluster)?;
+            let key = format!("{}{}", self.cache_key, cluster.id);
+            redis_items.insert(key, value);
+        }
+        // Caching should not be a blocking operation. Therefore, we ignore the result
+        // I am convinced that there are better ways to handle this
+        match cache.m_save(redis_items) {
+            Ok(_) => {}
+            Err(_) => {}
+        }
         Ok(clusters)
     }
 
@@ -93,11 +107,17 @@ impl ClusterRepository for ClusterRepositorySea {
             .into_active_model()
             .update(&self.db.connection)
             .await?;
+        let cache_key = format!("{}{}", self.cache_key, cluster.id);
+        let mut cache = self.cache.write().unwrap();
+        cache.save(cache_key.as_str(), serde_json::to_string(&cluster)?)?;
         Ok(cluster)
     }
 
     async fn delete(&self, id: Uuid) -> Result<(), Box<dyn Error>> {
         Cluster::delete_by_id(id).exec(&self.db.connection).await?;
+        let cache_key = format!("{}{}", self.cache_key, id);
+        let mut cache = self.cache.write().unwrap();
+        cache.invalidate(cache_key.as_str())?;
         Ok(())
     }
 }

@@ -1,6 +1,6 @@
-mod items;
+pub mod items;
 
-use std::error::Error;
+use std::{collections::HashMap, error::Error};
 
 use items::Items;
 use redis::{Commands, Connection};
@@ -28,7 +28,7 @@ impl Cache {
         Ok(())
     }
 
-    pub fn m_save(&mut self, items: &Items) -> Result<(), Box<dyn Error>> {
+    pub fn m_save(&mut self, items: HashMap<String,String>) -> Result<(), Box<dyn Error>> {
         for item in items.iter() {
             let key = item.0.as_str();
             let value = item.1.as_str();
@@ -45,6 +45,24 @@ impl Cache {
                 return Ok(Some(parsed_value));
             }
         }
+    }
+
+    pub fn m_get(&mut self, keys: Vec<String>) -> Result<Vec<Value>, Box<dyn Error>> {
+        let values: Vec<Option<String>> = self.connection.mget(keys)?;
+        let mut result: Vec<Value> = vec![];
+        for value in values.iter() {
+            match value {
+                None => {}
+                Some(v) => {
+                    let parsed_value: Value = serde_json::from_str(v.as_str())?;
+                    result.push(parsed_value);
+                }
+            }
+        }
+        if (result.len() as i32) != values.len() as i32 {
+            return Err("Some keys not found".into());
+        }
+        Ok(result)
     }
 
     pub fn invalidate(&mut self, key: &str) -> Result<i32, Box<dyn Error>> {

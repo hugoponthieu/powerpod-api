@@ -1,1 +1,1 @@
-pub type Items = [(String, String)];
+pub(crate) type Items = [(String, String)];
