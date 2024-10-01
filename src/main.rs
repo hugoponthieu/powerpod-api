@@ -1,6 +1,6 @@
 use std::error::Error;
 
-
+mod namespace;
 mod cluster;
 mod services;
 mod repositories;
